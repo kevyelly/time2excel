@@ -96,9 +96,9 @@ Private Sub GetDetails()
             totalHours = CDbl(cellText)
             foundHours = True
 
-        ElseIf InStr(cellText, "・) > 0 Then
+        ElseIf InStr(cellText, ChrW(8211)) > 0 Then
 
-            dashPosition = InStr(cellText, "・)
+            dashPosition = InStr(cellText, ChrW(8211))
 
             leftPart = Trim(Left(cellText, dashPosition - 1))
             rightPart = Trim(Mid(cellText, dashPosition + 1))
