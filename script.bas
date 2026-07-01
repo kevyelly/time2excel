@@ -378,13 +378,7 @@ Private Sub BeautifySheet( _
     If ws.Columns(1).ColumnWidth > 40 Then ws.Columns(1).ColumnWidth = 40
 
     ws.Activate
-    With ActiveWindow
-        .DisplayGridlines = False
-        .FreezePanes = False
-        .SplitRow = 1
-        .SplitColumn = 3
-        .FreezePanes = True
-    End With
+    ActiveWindow.DisplayGridlines = False
 
 End Sub
 
