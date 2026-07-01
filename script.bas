@@ -232,6 +232,11 @@ Private Sub WriteSummarySheet()
     Dim g As Long
     Dim weekKey As String
 
+    Dim projNames As Variant
+    Dim personNames As Variant
+    Dim pIdx As Long
+    Dim qIdx As Long
+
     ' ---- Column order: unique week serials, chronologically ascending -------
     weekSerials = SortedWeekSerials()
     numWeeks = mWeeks.Count
@@ -258,16 +263,22 @@ Private Sub WriteSummarySheet()
         data(1, 3 + j) = weekSerials(j)
     Next j
 
-    ' ---- Body: grouped by project, one blank spacer row between groups ------
+    ' ---- Body: projects alphabetical (S*/P* codes pushed to the bottom),
+    '      employees alphabetical within each project, blank row between groups
+    projNames = OrderedProjectNames()
+
     r = 1
     g = 0
-    For Each projKey In mGroups.Keys
+    For pIdx = 0 To numGroups - 1
 
+        projKey = projNames(pIdx)
         g = g + 1
         Set persons = mGroups(projKey)
+        personNames = SortedNames(persons)
 
-        For Each personKey In persons.Keys
+        For qIdx = 0 To persons.Count - 1
 
+            personKey = personNames(qIdx)
             Set rowInfo = persons(personKey)
             Set hrs = rowInfo("hrs")
 
@@ -283,12 +294,12 @@ Private Sub WriteSummarySheet()
                 End If
             Next j
 
-        Next personKey
+        Next qIdx
 
         ' blank spacer row between groups (not after the last one)
         If g < numGroups Then r = r + 1
 
-    Next projKey
+    Next pIdx
 
     ' ---- Create / replace the dated Summary sheet --------------------------
     sheetName = "SUMMARY " & Format(Date, "yyyy-mm-dd")
@@ -425,5 +436,123 @@ Private Function SortedWeekSerials() As Double()
     Next i
 
     SortedWeekSerials = arr
+
+End Function
+
+' Project names ordered alphabetically, with "special" projects (code starts
+' with S or P) pushed to the bottom, alphabetical among themselves.
+Private Function OrderedProjectNames() As Variant
+
+    Dim keys As Variant
+    Dim arr() As String
+    Dim n As Long
+    Dim i As Long
+    Dim jj As Long
+    Dim tmp As String
+
+    n = mGroups.Count
+    If n = 0 Then
+        OrderedProjectNames = Array()
+        Exit Function
+    End If
+
+    keys = mGroups.Keys
+    ReDim arr(0 To n - 1)
+    For i = 0 To n - 1
+        arr(i) = CStr(keys(i))
+    Next i
+
+    ' insertion sort using the combined "special-last, then alphabetical" order
+    For i = 1 To n - 1
+        tmp = arr(i)
+        jj = i - 1
+        Do While jj >= 0
+            If ProjectLessOrEqual(arr(jj), tmp) Then Exit Do
+            arr(jj + 1) = arr(jj)
+            jj = jj - 1
+        Loop
+        arr(jj + 1) = tmp
+    Next i
+
+    OrderedProjectNames = arr
+
+End Function
+
+' True when project a should be ordered before-or-equal to b: normal projects
+' precede special ones; ties broken alphabetically (case-insensitive).
+Private Function ProjectLessOrEqual(ByVal a As String, ByVal b As String) As Boolean
+
+    Dim fa As Long
+    Dim fb As Long
+
+    fa = IIf(ProjectIsSpecial(a), 1, 0)
+    fb = IIf(ProjectIsSpecial(b), 1, 0)
+
+    If fa <> fb Then
+        ProjectLessOrEqual = (fa < fb)
+    Else
+        ProjectLessOrEqual = (StrComp(a, b, vbTextCompare) <= 0)
+    End If
+
+End Function
+
+' A project is "special" when its (first) code before the slash starts with
+' S or P (e.g. SK77, SKSI, PSAAAPP) -> parked at the bottom of the list.
+Private Function ProjectIsSpecial(ByVal projName As String) As Boolean
+
+    Dim persons As Object
+    Dim k As Variant
+    Dim code As String
+    Dim codeA As String
+    Dim firstChar As String
+
+    Set persons = mGroups(projName)
+
+    codeA = ""
+    For Each k In persons.Keys
+        code = CStr(persons(k)("code"))
+        codeA = Split(code, " / ")(0)
+        Exit For
+    Next k
+
+    firstChar = UCase(Left(codeA, 1))
+    ProjectIsSpecial = (firstChar = "S" Or firstChar = "P")
+
+End Function
+
+' Employee names of one project, sorted alphabetically (case-insensitive).
+Private Function SortedNames(ByVal persons As Object) As Variant
+
+    Dim keys As Variant
+    Dim arr() As String
+    Dim n As Long
+    Dim i As Long
+    Dim jj As Long
+    Dim tmp As String
+
+    n = persons.Count
+    If n = 0 Then
+        SortedNames = Array()
+        Exit Function
+    End If
+
+    keys = persons.Keys
+    ReDim arr(0 To n - 1)
+    For i = 0 To n - 1
+        arr(i) = CStr(keys(i))
+    Next i
+
+    For i = 1 To n - 1
+        tmp = arr(i)
+        jj = i - 1
+        Do While jj >= 0
+            If StrComp(arr(jj), tmp, vbTextCompare) <= 0 Then Exit Do
+            arr(jj + 1) = arr(jj)
+            jj = jj - 1
+        Loop
+        arr(jj + 1) = tmp
+    Next i
+
+    SortedNames = arr
 
 End Function
