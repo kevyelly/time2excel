@@ -5,11 +5,17 @@ Option Explicit
 ' writer). Scripting.Dictionary preserves insertion order, which we rely on to
 ' keep project groups and people in first-appearance order.
 '
-'   mGroups : projectName -> persons dictionary
-'   persons : name        -> rowInfo dictionary  ("code" + "hrs")
-'   rowInfo : "code" -> "CODE_A / CODE_B"
-'             "hrs"  -> hours dictionary  (weekSerialKey -> Double)
-'   mWeeks  : weekSerialKey -> week serial (Double)
+'   mGroups  : groupKey (codeA & Chr(30) & codeB) -> group dictionary
+'   group    : "name"    -> project display name (String)
+'              "persons" -> persons dictionary
+'   persons  : personProjectKey -> rowInfo dictionary
+'   rowInfo  : "name" -> employee name (String)
+'              "code" -> "CODE_A / CODE_B" (String)
+'              "hrs"  -> hours dictionary  (weekSerialKey -> Double)
+'   mWeeks   : weekSerialKey -> week serial (Double)
+'
+' Grouping is by project CODE (codeA + codeB), not project name, so two
+' engagements with the same display name but different codes stay separate.
 ' --------------------------------------------------------------------------
 Private mGroups As Object
 Private mWeeks As Object
@@ -151,7 +157,6 @@ Private Sub ParseRawData(ByVal ws As Worksheet)
 
 End Sub
 
-' Accumulate one parsed project record into the aggregation stores.
 Private Sub StoreProject( _
     ByVal employeeName As String, _
     ByVal weekSerial As Double, _
@@ -162,46 +167,68 @@ Private Sub StoreProject( _
 )
 
     Dim projectCode As String
+    Dim groupKey As String
+    Dim personProjectKey As String
     Dim weekKey As String
+
+    Dim group As Object
     Dim persons As Object
     Dim rowInfo As Object
     Dim hrs As Object
 
     projectName = CleanProjectName(projectName)
     projectCode = projectCodeA & " / " & projectCodeB
+
+    ' Primary grouping key is the code pair — guarantees that two engagements
+    ' with the same display name but different codes land in separate groups.
+    groupKey = projectCodeA & Chr(30) & projectCodeB
+
+    personProjectKey = employeeName & Chr(30) & _
+                       projectCodeA & Chr(30) & _
+                       projectCodeB
+
     weekKey = CStr(weekSerial)
 
-    ' Track every week we have seen (used to build the date columns).
+    ' Track every week found for the summary columns.
     mWeeks(weekKey) = weekSerial
 
-    If Not mGroups.Exists(projectName) Then
-        mGroups.Add projectName, CreateObject("Scripting.Dictionary")
+    ' Create the code-keyed group when it does not exist yet.
+    If Not mGroups.Exists(groupKey) Then
+        Set group = CreateObject("Scripting.Dictionary")
+        group("name") = projectName
+        Set group("persons") = CreateObject("Scripting.Dictionary")
+        mGroups.Add groupKey, group
     End If
-    Set persons = mGroups(projectName)
 
-    If Not persons.Exists(employeeName) Then
+    Set group = mGroups(groupKey)
+    Set persons = group("persons")
+
+    ' Create a separate row for every unique employee in this code group.
+    If Not persons.Exists(personProjectKey) Then
         Set rowInfo = CreateObject("Scripting.Dictionary")
+        rowInfo("name") = employeeName
         rowInfo("code") = projectCode
         Set rowInfo("hrs") = CreateObject("Scripting.Dictionary")
-        persons.Add employeeName, rowInfo
+        persons.Add personProjectKey, rowInfo
     End If
-    Set rowInfo = persons(employeeName)
 
+    Set rowInfo = persons(personProjectKey)
     Set hrs = rowInfo("hrs")
-    ' Sum in case the same person/week/project appears more than once.
-    hrs(weekKey) = CDbl(hrs(weekKey)) + totalHours
+
+    ' Sum hours when the same employee / code pair / week appears more than once.
+    If hrs.Exists(weekKey) Then
+        hrs(weekKey) = CDbl(hrs(weekKey)) + totalHours
+    Else
+        hrs.Add weekKey, totalHours
+    End If
 
 End Sub
 
-' The template drops a leading "PH " that the source name sometimes carries
-' (e.g. "PH Duskin AMS" -> "Duskin AMS"). Flip this to keep names verbatim.
+' Keep the project name exactly as it appears in the source data.
+' (e.g. "PH Duskin AMS" stays "PH Duskin AMS")
 Private Function CleanProjectName(ByVal projectName As String) As String
 
-    If Left(projectName, 3) = "PH " Then
-        CleanProjectName = Trim(Mid(projectName, 4))
-    Else
-        CleanProjectName = projectName
-    End If
+    CleanProjectName = projectName
 
 End Function
 
@@ -232,20 +259,16 @@ Private Sub WriteSummarySheet()
     Dim g As Long
     Dim weekKey As String
 
-    Dim projNames As Variant
-    Dim personNames As Variant
-    Dim pIdx As Long
-    Dim qIdx As Long
-
     ' ---- Column order: unique week serials, chronologically ascending -------
     weekSerials = SortedWeekSerials()
     numWeeks = mWeeks.Count
 
     ' ---- Sheet geometry -----------------------------------------------------
+    ' mGroups is keyed by code pair; each group holds a "persons" sub-dictionary.
     numGroups = mGroups.Count
     numPersons = 0
     For Each projKey In mGroups.Keys
-        numPersons = numPersons + mGroups(projKey).Count
+        numPersons = numPersons + mGroups(projKey)("persons").Count
     Next projKey
 
     ' header + all person rows + one blank row between consecutive groups
@@ -263,28 +286,25 @@ Private Sub WriteSummarySheet()
         data(1, 3 + j) = weekSerials(j)
     Next j
 
-    ' ---- Body: projects alphabetical (S*/P* codes pushed to the bottom),
-    '      employees alphabetical within each project, blank row between groups
-    projNames = OrderedProjectNames()
+    ' ---- Body: grouped by code pair, one blank spacer row between groups -----
+    Dim groupObj As Object
 
     r = 1
     g = 0
-    For pIdx = 0 To numGroups - 1
+    For Each projKey In mGroups.Keys
 
-        projKey = projNames(pIdx)
         g = g + 1
-        Set persons = mGroups(projKey)
-        personNames = SortedNames(persons)
+        Set groupObj = mGroups(projKey)
+        Set persons = groupObj("persons")
 
-        For qIdx = 0 To persons.Count - 1
+        For Each personKey In persons.Keys
 
-            personKey = personNames(qIdx)
             Set rowInfo = persons(personKey)
             Set hrs = rowInfo("hrs")
 
             r = r + 1
-            data(r, 1) = projKey
-            data(r, 2) = personKey
+            data(r, 1) = groupObj("name")   ' display name from the group
+            data(r, 2) = rowInfo("name")
             data(r, 3) = rowInfo("code")
 
             For j = 1 To numWeeks
@@ -294,12 +314,12 @@ Private Sub WriteSummarySheet()
                 End If
             Next j
 
-        Next qIdx
+        Next personKey
 
         ' blank spacer row between groups (not after the last one)
         If g < numGroups Then r = r + 1
 
-    Next pIdx
+    Next projKey
 
     ' ---- Create / replace the dated Summary sheet --------------------------
     sheetName = "SUMMARY " & Format(Date, "yyyy-mm-dd")
@@ -389,7 +409,13 @@ Private Sub BeautifySheet( _
     If ws.Columns(1).ColumnWidth > 40 Then ws.Columns(1).ColumnWidth = 40
 
     ws.Activate
-    ActiveWindow.DisplayGridlines = False
+    With ActiveWindow
+        .DisplayGridlines = False
+        .FreezePanes = False
+        .SplitRow = 1
+        .SplitColumn = 3
+        .FreezePanes = True
+    End With
 
 End Sub
 
@@ -439,120 +465,3 @@ Private Function SortedWeekSerials() As Double()
 
 End Function
 
-' Project names ordered alphabetically, with "special" projects (code starts
-' with S or P) pushed to the bottom, alphabetical among themselves.
-Private Function OrderedProjectNames() As Variant
-
-    Dim keys As Variant
-    Dim arr() As String
-    Dim n As Long
-    Dim i As Long
-    Dim jj As Long
-    Dim tmp As String
-
-    n = mGroups.Count
-    If n = 0 Then
-        OrderedProjectNames = Array()
-        Exit Function
-    End If
-
-    keys = mGroups.Keys
-    ReDim arr(0 To n - 1)
-    For i = 0 To n - 1
-        arr(i) = CStr(keys(i))
-    Next i
-
-    ' insertion sort using the combined "special-last, then alphabetical" order
-    For i = 1 To n - 1
-        tmp = arr(i)
-        jj = i - 1
-        Do While jj >= 0
-            If ProjectLessOrEqual(arr(jj), tmp) Then Exit Do
-            arr(jj + 1) = arr(jj)
-            jj = jj - 1
-        Loop
-        arr(jj + 1) = tmp
-    Next i
-
-    OrderedProjectNames = arr
-
-End Function
-
-' True when project a should be ordered before-or-equal to b: normal projects
-' precede special ones; ties broken alphabetically (case-insensitive).
-Private Function ProjectLessOrEqual(ByVal a As String, ByVal b As String) As Boolean
-
-    Dim fa As Long
-    Dim fb As Long
-
-    fa = IIf(ProjectIsSpecial(a), 1, 0)
-    fb = IIf(ProjectIsSpecial(b), 1, 0)
-
-    If fa <> fb Then
-        ProjectLessOrEqual = (fa < fb)
-    Else
-        ProjectLessOrEqual = (StrComp(a, b, vbTextCompare) <= 0)
-    End If
-
-End Function
-
-' A project is "special" when its (first) code before the slash starts with
-' S or P (e.g. SK77, SKSI, PSAAAPP) -> parked at the bottom of the list.
-Private Function ProjectIsSpecial(ByVal projName As String) As Boolean
-
-    Dim persons As Object
-    Dim k As Variant
-    Dim code As String
-    Dim codeA As String
-    Dim firstChar As String
-
-    Set persons = mGroups(projName)
-
-    codeA = ""
-    For Each k In persons.Keys
-        code = CStr(persons(k)("code"))
-        codeA = Split(code, " / ")(0)
-        Exit For
-    Next k
-
-    firstChar = UCase(Left(codeA, 1))
-    ProjectIsSpecial = (firstChar = "S" Or firstChar = "P")
-
-End Function
-
-' Employee names of one project, sorted alphabetically (case-insensitive).
-Private Function SortedNames(ByVal persons As Object) As Variant
-
-    Dim keys As Variant
-    Dim arr() As String
-    Dim n As Long
-    Dim i As Long
-    Dim jj As Long
-    Dim tmp As String
-
-    n = persons.Count
-    If n = 0 Then
-        SortedNames = Array()
-        Exit Function
-    End If
-
-    keys = persons.Keys
-    ReDim arr(0 To n - 1)
-    For i = 0 To n - 1
-        arr(i) = CStr(keys(i))
-    Next i
-
-    For i = 1 To n - 1
-        tmp = arr(i)
-        jj = i - 1
-        Do While jj >= 0
-            If StrComp(arr(jj), tmp, vbTextCompare) <= 0 Then Exit Do
-            arr(jj + 1) = arr(jj)
-            jj = jj - 1
-        Loop
-        arr(jj + 1) = tmp
-    Next i
-
-    SortedNames = arr
-
-End Function
