@@ -179,7 +179,7 @@ Private Sub StoreProject( _
     projectName = CleanProjectName(projectName)
     projectCode = projectCodeA & " / " & projectCodeB
 
-    ' Primary grouping key is the code pair — guarantees that two engagements
+    ' Primary grouping key is the code pair ? guarantees that two engagements
     ' with the same display name but different codes land in separate groups.
     groupKey = projectCodeA & Chr(30) & projectCodeB
 
@@ -267,7 +267,7 @@ Private Sub WriteSummarySheet()
     ' mGroups is keyed by code pair; each group holds a "persons" sub-dictionary.
     numGroups = mGroups.Count
     numPersons = 0
-    For Each projKey In mGroups.Keys
+    For Each projKey In mGroups.keys
         numPersons = numPersons + mGroups(projKey)("persons").Count
     Next projKey
 
@@ -291,13 +291,13 @@ Private Sub WriteSummarySheet()
 
     r = 1
     g = 0
-    For Each projKey In mGroups.Keys
+    For Each projKey In mGroups.keys
 
         g = g + 1
         Set groupObj = mGroups(projKey)
         Set persons = groupObj("persons")
 
-        For Each personKey In persons.Keys
+        For Each personKey In persons.keys
 
             Set rowInfo = persons(personKey)
             Set hrs = rowInfo("hrs")
@@ -444,7 +444,7 @@ Private Function SortedWeekSerials() As Double()
     ReDim arr(1 To Application.Max(n, 1))
 
     i = 0
-    For Each k In mWeeks.Keys
+    For Each k In mWeeks.keys
         i = i + 1
         arr(i) = mWeeks(k)
     Next k
@@ -464,4 +464,7 @@ Private Function SortedWeekSerials() As Double()
     SortedWeekSerials = arr
 
 End Function
+
+
+
 
