@@ -408,9 +408,8 @@ Private Sub BeautifySheet( _
     With ActiveWindow
         .DisplayGridlines = False
         .FreezePanes = False
-        .SplitRow = 1
-        .SplitColumn = 3
-        .FreezePanes = True
+        .SplitRow = 0
+        .SplitColumn = 0
     End With
 
 End Sub
