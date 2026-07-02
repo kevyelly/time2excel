@@ -31,12 +31,8 @@ Private Sub GenerateSummary()
     Set mGroups = CreateObject("Scripting.Dictionary")
     Set mWeeks = CreateObject("Scripting.Dictionary")
 
-    ' Read the dump by name so re-runs work even when a SUMMARY sheet is active;
-    ' fall back to the active sheet if there is no "Raw Data" tab.
-    On Error Resume Next
-    Set source = ThisWorkbook.Worksheets("Raw Data")
-    On Error GoTo 0
-    If source Is Nothing Then Set source = ActiveSheet
+    ' Process the currently active sheet (the one whose button was clicked).
+    Set source = ActiveSheet
 
     ParseRawData source
     WriteSummarySheet
@@ -225,7 +221,6 @@ Private Sub StoreProject( _
 End Sub
 
 ' Keep the project name exactly as it appears in the source data.
-' (e.g. "PH Duskin AMS" stays "PH Duskin AMS")
 Private Function CleanProjectName(ByVal projectName As String) As String
 
     CleanProjectName = projectName
@@ -321,8 +316,9 @@ Private Sub WriteSummarySheet()
 
     Next projKey
 
-    ' ---- Create / replace the dated Summary sheet --------------------------
-    sheetName = "SUMMARY " & Format(Date, "yyyy-mm-dd")
+    ' Include a time stamp (hh-mm-ss, colons are illegal in sheet names) so each
+    ' run produces a uniquely named sheet instead of overwriting the previous one.
+    sheetName = "SUMMARY " & Format(Now, "yyyy-mm-dd hh-mm-ss")
 
     Application.DisplayAlerts = False
     On Error Resume Next
